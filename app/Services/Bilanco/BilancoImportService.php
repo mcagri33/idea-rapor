@@ -303,17 +303,48 @@ class BilancoImportService
         $zipOpened = false;
         
         try {
+            Log::info('Excel ZIP okuma başlatıldı', ['file' => $filePath]);
+            
             // ZIP'i aç
             $zip = new \ZipArchive();
             $result = $zip->open($filePath, \ZipArchive::RDONLY);
             
             if ($result !== true) {
-                Log::error('Excel ZIP açılamadı', ['result' => $result, 'file' => $filePath]);
-                // ZIP açılamadı, zaten açık değil
+                Log::error('Excel ZIP açılamadı', [
+                    'result' => $result,
+                    'file' => $filePath,
+                    'error_codes' => [
+                        \ZipArchive::ER_OK => 'ER_OK',
+                        \ZipArchive::ER_MULTIDISK => 'ER_MULTIDISK',
+                        \ZipArchive::ER_RENAME => 'ER_RENAME',
+                        \ZipArchive::ER_CLOSE => 'ER_CLOSE',
+                        \ZipArchive::ER_SEEK => 'ER_SEEK',
+                        \ZipArchive::ER_READ => 'ER_READ',
+                        \ZipArchive::ER_WRITE => 'ER_WRITE',
+                        \ZipArchive::ER_CRC => 'ER_CRC',
+                        \ZipArchive::ER_ZIPCLOSED => 'ER_ZIPCLOSED',
+                        \ZipArchive::ER_NOENT => 'ER_NOENT',
+                        \ZipArchive::ER_EXISTS => 'ER_EXISTS',
+                        \ZipArchive::ER_OPEN => 'ER_OPEN',
+                        \ZipArchive::ER_TMPOPEN => 'ER_TMPOPEN',
+                        \ZipArchive::ER_ZLIB => 'ER_ZLIB',
+                        \ZipArchive::ER_MEMORY => 'ER_MEMORY',
+                        \ZipArchive::ER_CHANGED => 'ER_CHANGED',
+                        \ZipArchive::ER_COMPNOTSUPP => 'ER_COMPNOTSUPP',
+                        \ZipArchive::ER_EOF => 'ER_EOF',
+                        \ZipArchive::ER_INVAL => 'ER_INVAL',
+                        \ZipArchive::ER_NOZIP => 'ER_NOZIP',
+                        \ZipArchive::ER_INTERNAL => 'ER_INTERNAL',
+                        \ZipArchive::ER_INCONS => 'ER_INCONS',
+                        \ZipArchive::ER_REMOVE => 'ER_REMOVE',
+                        \ZipArchive::ER_DELETED => 'ER_DELETED',
+                    ],
+                ]);
                 return null;
             }
             
             $zipOpened = true;
+            Log::info('ZIP açıldı', ['file' => $filePath]);
             
             // Geçici dizine çıkar (izin verilen dizin)
             $extractDir = storage_path('app/temp/excel_extract_' . uniqid());
@@ -326,6 +357,8 @@ class BilancoImportService
                 }
             }
             
+            Log::info('Geçici dizin oluşturuldu', ['dir' => $extractDir]);
+            
             // ZIP'i çıkar
             if (!$zip->extractTo($extractDir)) {
                 Log::error('ZIP çıkarılamadı', ['dir' => $extractDir]);
@@ -333,6 +366,8 @@ class BilancoImportService
                 $zipOpened = false;
                 return null;
             }
+            
+            Log::info('ZIP çıkarıldı', ['dir' => $extractDir]);
             
             // ZIP'i kapat
             $zip->close();
@@ -343,7 +378,8 @@ class BilancoImportService
             $sharedStrings = [];
             $sharedStringsFile = $extractDir . '/xl/sharedStrings.xml';
             if (file_exists($sharedStringsFile)) {
-                $sharedStringsXml = simplexml_load_file($sharedStringsFile);
+                Log::info('Shared strings dosyası bulundu', ['file' => $sharedStringsFile]);
+                $sharedStringsXml = @simplexml_load_file($sharedStringsFile);
                 if ($sharedStringsXml) {
                     // Excel namespace'i
                     $sharedStringsXml->registerXPathNamespace('x', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
@@ -368,7 +404,12 @@ class BilancoImportService
                         }
                         $sharedStrings[] = $text;
                     }
+                    Log::info('Shared strings okundu', ['count' => count($sharedStrings)]);
+                } else {
+                    Log::warning('Shared strings XML okunamadı', ['file' => $sharedStringsFile]);
                 }
+            } else {
+                Log::info('Shared strings dosyası yok (normal olabilir)', ['file' => $sharedStringsFile]);
             }
             
             // İlk worksheet'i oku
@@ -378,21 +419,34 @@ class BilancoImportService
                 $worksheetsDir = $extractDir . '/xl/worksheets';
                 if (is_dir($worksheetsDir)) {
                     $files = glob($worksheetsDir . '/*.xml');
+                    Log::info('Worksheets dizinindeki dosyalar', ['files' => $files, 'dir' => $worksheetsDir]);
                     if (!empty($files)) {
                         $worksheetFile = $files[0];
                     }
+                } else {
+                    Log::error('Worksheets dizini bulunamadı', ['dir' => $worksheetsDir]);
                 }
             }
             
             if (!file_exists($worksheetFile)) {
-                Log::error('Worksheet XML dosyası bulunamadı');
+                Log::error('Worksheet XML dosyası bulunamadı', [
+                    'extract_dir' => $extractDir,
+                    'expected_file' => $extractDir . '/xl/worksheets/sheet1.xml',
+                    'worksheets_dir_exists' => is_dir($extractDir . '/xl/worksheets'),
+                ]);
                 return null;
             }
             
+            Log::info('Worksheet XML dosyası bulundu', ['file' => $worksheetFile]);
+            
             // Worksheet XML'ini oku
-            $worksheetXml = simplexml_load_file($worksheetFile);
+            $worksheetXml = @simplexml_load_file($worksheetFile);
             if (!$worksheetXml) {
-                Log::error('Worksheet XML okunamadı');
+                $errors = libxml_get_errors();
+                Log::error('Worksheet XML okunamadı', [
+                    'file' => $worksheetFile,
+                    'errors' => array_map(fn($e) => $e->message, $errors),
+                ]);
                 return null;
             }
             
@@ -409,9 +463,23 @@ class BilancoImportService
             }
             
             if (empty($rows)) {
-                Log::error('Worksheet XML\'de satır bulunamadı');
+                // sheetData içinde dene
+                $sheetData = $worksheetXml->xpath('//x:sheetData/x:row');
+                if (empty($sheetData)) {
+                    $sheetData = $worksheetXml->xpath('//sheetData/row');
+                }
+                $rows = $sheetData;
+            }
+            
+            if (empty($rows)) {
+                Log::error('Worksheet XML\'de satır bulunamadı', [
+                    'file' => $worksheetFile,
+                    'xml_structure' => substr($worksheetXml->asXML(), 0, 500), // İlk 500 karakter
+                ]);
                 return null;
             }
+            
+            Log::info('Satırlar bulundu', ['satir_sayisi' => count($rows)]);
             
             foreach ($rows as $row) {
                 $rowData = [];
@@ -464,6 +532,14 @@ class BilancoImportService
                 // Sıralı array'e çevir
                 ksort($rowData);
                 $data[] = array_values($rowData);
+            }
+            
+            if (empty($data)) {
+                Log::warning('Excel ZIP okundu ama satır verisi boş', [
+                    'file' => $filePath,
+                    'extract_dir' => $extractDir,
+                ]);
+                return null;
             }
             
             Log::info('Excel ZIP okuma başarılı', [
