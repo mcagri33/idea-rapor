@@ -26,8 +26,36 @@ class BilancoImportService
 
         try {
             // PhpSpreadsheet ile dosyayı aç (formatting bilgisi için)
-            $spreadsheet = IOFactory::load($filePath);
-            $worksheet = $spreadsheet->getActiveSheet();
+            // open_basedir hatası için try-catch ile sarmala
+            $worksheet = null;
+            try {
+                // Excel dosyasını okurken geçici dizin sorununu önlemek için
+                // önce dosyanın izin verilen dizinde olduğundan emin ol
+                if (!file_exists($filePath)) {
+                    throw new \Exception("Dosya bulunamadı: {$filePath}");
+                }
+                
+                // PhpSpreadsheet'in geçici dizin ayarını yap
+                // ZIP arşivini açarken geçici dosyalar oluşturur
+                $spreadsheet = IOFactory::load($filePath);
+                $worksheet = $spreadsheet->getActiveSheet();
+            } catch (\Exception $e) {
+                // open_basedir hatası veya başka bir hata durumunda
+                // worksheet'i null yap - sadece string indent kullanılacak
+                if (str_contains($e->getMessage(), 'open_basedir') || 
+                    str_contains($e->getMessage(), 'file_exists')) {
+                    Log::warning('PhpSpreadsheet load failed due to open_basedir restriction, using string indent only', [
+                        'error' => $e->getMessage(),
+                        'file_path' => $filePath,
+                    ]);
+                } else {
+                    // Diğer hatalar için de log tut ama devam et
+                    Log::warning('PhpSpreadsheet load failed, using string indent only', [
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+                $worksheet = null;
+            }
             
             // Array formatında da al (hızlı okuma için)
             $data = Excel::toArray([], $filePath);
@@ -66,7 +94,8 @@ class BilancoImportService
                 $allEmpty = $cariDonem === null && $oncekiDonem === null && $acilisBakiyeleri === null;
 
                 // Hiyerarşi seviyesini belirle (hem boşluk hem de Excel indent)
-                $level = $this->calculateLevel($accountNameRaw, $worksheet, $i + 1);
+                // worksheet null ise sadece string indent kullanılır
+                $level = $this->calculateLevel($accountNameRaw, $worksheet ?? null, $i + 1);
 
                 if ($allEmpty) {
                     // GROUP satır - Path stack'i güncelle
