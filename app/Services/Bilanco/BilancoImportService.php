@@ -300,26 +300,44 @@ class BilancoImportService
         
         $zip = null;
         $extractDir = null;
+        $zipOpened = false;
         
         try {
             // ZIP'i aç
             $zip = new \ZipArchive();
-            $result = $zip->open($filePath);
+            $result = $zip->open($filePath, \ZipArchive::RDONLY);
             
             if ($result !== true) {
-                Log::error('Excel ZIP açılamadı', ['result' => $result]);
+                Log::error('Excel ZIP açılamadı', ['result' => $result, 'file' => $filePath]);
+                // ZIP açılamadı, zaten açık değil
                 return null;
             }
+            
+            $zipOpened = true;
             
             // Geçici dizine çıkar (izin verilen dizin)
             $extractDir = storage_path('app/temp/excel_extract_' . uniqid());
             if (!is_dir($extractDir)) {
-                @mkdir($extractDir, 0755, true);
+                if (!@mkdir($extractDir, 0755, true)) {
+                    Log::error('Geçici dizin oluşturulamadı', ['dir' => $extractDir]);
+                    $zip->close();
+                    $zipOpened = false;
+                    return null;
+                }
             }
             
             // ZIP'i çıkar
-            $zip->extractTo($extractDir);
+            if (!$zip->extractTo($extractDir)) {
+                Log::error('ZIP çıkarılamadı', ['dir' => $extractDir]);
+                $zip->close();
+                $zipOpened = false;
+                return null;
+            }
+            
+            // ZIP'i kapat
             $zip->close();
+            $zipOpened = false;
+            $zip = null;
             
             // Shared strings dosyasını oku
             $sharedStrings = [];
@@ -415,16 +433,29 @@ class BilancoImportService
             Log::error('Excel ZIP okuma hatası', [
                 'error' => $e->getMessage(),
                 'file_path' => $filePath,
+                'trace' => $e->getTraceAsString(),
             ]);
             return null;
         } finally {
-            // Temizlik
-            if ($zip) {
-                @$zip->close();
+            // ZIP'i kapat (eğer açıksa)
+            if ($zipOpened && $zip instanceof \ZipArchive) {
+                try {
+                    $zip->close();
+                } catch (\Exception $e) {
+                    // ZIP zaten kapatılmış olabilir, hata yok say
+                }
             }
+            
+            // Geçici dizini temizle
             if ($extractDir && is_dir($extractDir)) {
-                // Dizini recursive olarak sil
-                $this->deleteDirectory($extractDir);
+                try {
+                    $this->deleteDirectory($extractDir);
+                } catch (\Exception $e) {
+                    Log::warning('Geçici dizin temizlenemedi', [
+                        'dir' => $extractDir,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
         }
     }
