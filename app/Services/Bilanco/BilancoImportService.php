@@ -7,6 +7,7 @@ use App\Models\BilancoRow;
 use Illuminate\Support\Facades\Log;
 use Maatwebsite\Excel\Facades\Excel;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Settings;
 
 class BilancoImportService
 {
@@ -29,32 +30,32 @@ class BilancoImportService
             // PhpSpreadsheet ZIP arşivini açarken geçici dosyalar oluşturur
             // Bu yüzden Excel::toArray() de hata verebilir
             
+            // PhpSpreadsheet'in geçici dizin ayarını yap
+            // open_basedir kısıtlaması nedeniyle izin verilen bir dizin kullan
+            $tempDir = storage_path('app/temp/phpspreadsheet');
+            if (!is_dir($tempDir)) {
+                @mkdir($tempDir, 0755, true);
+            }
+            
+            // PHP'nin geçici dizin environment variable'ını ayarla
+            // PhpSpreadsheet ZIP arşivini açarken sys_get_temp_dir() kullanır
+            // Bu fonksiyon TMPDIR environment variable'ını kontrol eder
+            if (is_dir($tempDir) && is_writable($tempDir)) {
+                // Environment variable'ı ayarla
+                putenv('TMPDIR=' . $tempDir);
+                putenv('TMP=' . $tempDir);
+                putenv('TEMP=' . $tempDir);
+                
+                // PhpSpreadsheet ayarları
+                Settings::setLibXmlLoaderOptions(LIBXML_DTDLOAD | LIBXML_DTDATTR);
+            }
+            
             $data = null;
             $worksheet = null;
-            $tempFile = null;
-            
-            // Dosya zaten storage/app içindeyse direkt oku
-            // Değilse izin verilen bir dizine kopyala
-            $isInStorage = str_starts_with($filePath, storage_path('app'));
-            
-            if (!$isInStorage) {
-                // Dosyayı storage/app/temp'e kopyala
-                $tempDir = storage_path('app/temp');
-                if (!is_dir($tempDir)) {
-                    mkdir($tempDir, 0755, true);
-                }
-                
-                $tempFile = $tempDir . '/' . 'bilanco_' . uniqid() . '_' . basename($filePath);
-                
-                if (!copy($filePath, $tempFile)) {
-                    throw new \Exception('Excel dosyası kopyalanamadı. Dosya izinlerini kontrol edin.');
-                }
-                
-                $filePath = $tempFile;
-            }
             
             try {
                 // Excel dosyasını oku
+                // PhpSpreadsheet artık izin verilen dizini kullanacak
                 $data = Excel::toArray([], $filePath);
                 
                 // PhpSpreadsheet ile worksheet'i al (indent için - opsiyonel)
@@ -67,11 +68,20 @@ class BilancoImportService
                         'error' => $e->getMessage(),
                     ]);
                 }
-            } finally {
-                // Geçici dosyayı temizle
-                if ($tempFile && file_exists($tempFile)) {
-                    @unlink($tempFile);
+            } catch (\Exception $e) {
+                // open_basedir hatası devam ederse, alternatif yöntem dene
+                if (str_contains($e->getMessage(), 'open_basedir') || 
+                    str_contains($e->getMessage(), '/xl/worksheets/')) {
+                    
+                    Log::warning('Excel read failed even with temp dir setting, error logged', [
+                        'error' => $e->getMessage(),
+                        'file_path' => $filePath,
+                        'temp_dir' => $tempDir,
+                    ]);
+                    
+                    throw new \Exception('Excel dosyası okunamadı. open_basedir kısıtlaması nedeniyle PhpSpreadsheet geçici dosyalar oluşturamıyor. Lütfen sunucu yöneticisi ile iletişime geçin veya open_basedir ayarını kontrol edin.');
                 }
+                throw $e;
             }
             
             if (empty($data) || empty($data[0])) {
