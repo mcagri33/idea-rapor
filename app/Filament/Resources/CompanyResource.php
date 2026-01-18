@@ -34,15 +34,16 @@ class CompanyResource extends Resource
     {
         return $table
             ->columns([
-
                 Tables\Columns\TextColumn::make('company')
                     ->label('Şirket')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->wrap(),
 
                 Tables\Columns\TextColumn::make('email')
                     ->label('E-posta')
-                    ->searchable(),
+                    ->searchable()
+                    ->wrap(),
 
                 Tables\Columns\IconColumn::make('is_active')
                     ->label('Aktif')
@@ -52,12 +53,14 @@ class CompanyResource extends Resource
                     ->label('Son Senkron')
                     ->dateTime('d.m.Y H:i')
                     ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->wrap(),
 
                 Tables\Columns\TextColumn::make('external_id')
                     ->label('External ID')
                     ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->wrap(),
             ])
             ->filters([
                 Tables\Filters\TernaryFilter::make('is_active')
