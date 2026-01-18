@@ -345,12 +345,28 @@ class BilancoImportService
             if (file_exists($sharedStringsFile)) {
                 $sharedStringsXml = simplexml_load_file($sharedStringsFile);
                 if ($sharedStringsXml) {
-                    $namespaces = $sharedStringsXml->getNamespaces(true);
-                    $ns = $namespaces[''] ?? '';
+                    // Excel namespace'i
+                    $sharedStringsXml->registerXPathNamespace('x', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
                     
-                    foreach ($sharedStringsXml->children($ns)->si as $si) {
-                        $t = (string)($si->t ?? '');
-                        $sharedStrings[] = $t;
+                    // si (string item) elementlerini bul
+                    $siElements = $sharedStringsXml->xpath('//x:si');
+                    if (empty($siElements)) {
+                        // Namespace olmadan dene
+                        $siElements = $sharedStringsXml->xpath('//si');
+                    }
+                    
+                    foreach ($siElements as $si) {
+                        // t (text) elementini bul
+                        $tElements = $si->xpath('.//x:t');
+                        if (empty($tElements)) {
+                            $tElements = $si->xpath('.//t');
+                        }
+                        
+                        $text = '';
+                        foreach ($tElements as $t) {
+                            $text .= (string)$t;
+                        }
+                        $sharedStrings[] = $text;
                     }
                 }
             }
@@ -380,25 +396,46 @@ class BilancoImportService
                 return null;
             }
             
-            $namespaces = $worksheetXml->getNamespaces(true);
-            $ns = $namespaces[''] ?? '';
+            // Excel namespace'i
+            $worksheetXml->registerXPathNamespace('x', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
             
             $data = [];
             
-            // Satırları oku
-            foreach ($worksheetXml->children($ns)->sheetData->row as $row) {
+            // Satırları oku - xpath ile
+            $rows = $worksheetXml->xpath('//x:row');
+            if (empty($rows)) {
+                // Namespace olmadan dene
+                $rows = $worksheetXml->xpath('//row');
+            }
+            
+            if (empty($rows)) {
+                Log::error('Worksheet XML\'de satır bulunamadı');
+                return null;
+            }
+            
+            foreach ($rows as $row) {
                 $rowData = [];
-                $rowNum = (int)$row['r'];
+                $rowNum = (int)($row['r'] ?? 0);
                 
                 // Hücreleri oku
-                foreach ($row->c as $cell) {
-                    $cellRef = (string)$cell['r'];
-                    $cellType = (string)$cell['t'];
+                $cells = $row->xpath('.//x:c');
+                if (empty($cells)) {
+                    $cells = $row->xpath('.//c');
+                }
+                
+                foreach ($cells as $cell) {
+                    $cellRef = (string)($cell['r'] ?? '');
+                    $cellType = (string)($cell['t'] ?? '');
                     $cellValue = null;
                     
-                    // Hücre değerini al
-                    if (isset($cell->v)) {
-                        $cellValue = (string)$cell->v;
+                    // Hücre değerini al (v elementi)
+                    $vElements = $cell->xpath('.//x:v');
+                    if (empty($vElements)) {
+                        $vElements = $cell->xpath('.//v');
+                    }
+                    
+                    if (!empty($vElements)) {
+                        $cellValue = (string)$vElements[0];
                         
                         // Shared string ise
                         if ($cellType === 's' && isset($sharedStrings[(int)$cellValue])) {
@@ -407,14 +444,16 @@ class BilancoImportService
                     }
                     
                     // Kolon index'ini hesapla (A=0, B=1, ...)
-                    preg_match('/^([A-Z]+)(\d+)$/', $cellRef, $matches);
-                    if (!empty($matches[1])) {
-                        $col = $this->columnToIndex($matches[1]);
-                        $rowData[$col] = $cellValue;
+                    if (!empty($cellRef)) {
+                        preg_match('/^([A-Z]+)(\d+)$/', $cellRef, $matches);
+                        if (!empty($matches[1])) {
+                            $col = $this->columnToIndex($matches[1]);
+                            $rowData[$col] = $cellValue;
+                        }
                     }
                 }
                 
-                // Eksik kolonları null ile doldur
+                // Eksik kolonları null ile doldur (en az 4 kolon: A, B, C, D)
                 $maxCol = !empty($rowData) ? max(array_keys($rowData)) : 3;
                 for ($i = 0; $i <= $maxCol; $i++) {
                     if (!isset($rowData[$i])) {
@@ -426,6 +465,11 @@ class BilancoImportService
                 ksort($rowData);
                 $data[] = array_values($rowData);
             }
+            
+            Log::info('Excel ZIP okuma başarılı', [
+                'satir_sayisi' => count($data),
+                'file' => $filePath,
+            ]);
             
             return [$data];
             
