@@ -71,19 +71,24 @@ class CkGenerateService
                 ]);
                 
                 // Her satır için CK Line oluştur
+                // NOT: Tutar 0 olsa bile veya açılış boş (null) olsa bile CK mutlaka oluşturulur
                 foreach ($rows as $row) {
+                    // Fark hesaplama: cari ve onceki null değilse fark hesapla
+                    // 0 değerleri de dahil edilir (0 - 0 = 0)
                     $fark = null;
                     if ($row->cari_donem !== null && $row->onceki_donem !== null) {
                         $fark = $row->cari_donem - $row->onceki_donem;
                     }
                     
+                    // Tüm değerler (0 veya null olsa bile) kaydedilir
+                    // Null değerler null olarak kalır (boş açılış için)
                     CkLine::create([
                         'ck_head_id' => $ckHead->id,
                         'satir_adi' => $row->account_name,
-                        'cari' => $row->cari_donem,
-                        'onceki' => $row->onceki_donem,
-                        'acilis' => $row->acilis_bakiyeleri,
-                        'fark' => $fark,
+                        'cari' => $row->cari_donem, // 0 veya null olabilir
+                        'onceki' => $row->onceki_donem, // 0 veya null olabilir
+                        'acilis' => $row->acilis_bakiyeleri, // 0 veya null olabilir (boş açılış)
+                        'fark' => $fark, // 0 veya null olabilir
                     ]);
                 }
             }
