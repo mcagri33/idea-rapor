@@ -25,40 +25,54 @@ class BilancoImportService
         ]);
 
         try {
-            // PhpSpreadsheet ile dosyayı aç (formatting bilgisi için)
-            // open_basedir hatası için try-catch ile sarmala
+            // Excel dosyasını okurken open_basedir hatası oluşabilir
+            // PhpSpreadsheet ZIP arşivini açarken geçici dosyalar oluşturur
+            // Bu yüzden Excel::toArray() de hata verebilir
+            
+            $data = null;
             $worksheet = null;
-            try {
-                // Excel dosyasını okurken geçici dizin sorununu önlemek için
-                // önce dosyanın izin verilen dizinde olduğundan emin ol
-                if (!file_exists($filePath)) {
-                    throw new \Exception("Dosya bulunamadı: {$filePath}");
+            $tempFile = null;
+            
+            // Dosya zaten storage/app içindeyse direkt oku
+            // Değilse izin verilen bir dizine kopyala
+            $isInStorage = str_starts_with($filePath, storage_path('app'));
+            
+            if (!$isInStorage) {
+                // Dosyayı storage/app/temp'e kopyala
+                $tempDir = storage_path('app/temp');
+                if (!is_dir($tempDir)) {
+                    mkdir($tempDir, 0755, true);
                 }
                 
-                // PhpSpreadsheet'in geçici dizin ayarını yap
-                // ZIP arşivini açarken geçici dosyalar oluşturur
-                $spreadsheet = IOFactory::load($filePath);
-                $worksheet = $spreadsheet->getActiveSheet();
-            } catch (\Exception $e) {
-                // open_basedir hatası veya başka bir hata durumunda
-                // worksheet'i null yap - sadece string indent kullanılacak
-                if (str_contains($e->getMessage(), 'open_basedir') || 
-                    str_contains($e->getMessage(), 'file_exists')) {
-                    Log::warning('PhpSpreadsheet load failed due to open_basedir restriction, using string indent only', [
-                        'error' => $e->getMessage(),
-                        'file_path' => $filePath,
-                    ]);
-                } else {
-                    // Diğer hatalar için de log tut ama devam et
-                    Log::warning('PhpSpreadsheet load failed, using string indent only', [
+                $tempFile = $tempDir . '/' . 'bilanco_' . uniqid() . '_' . basename($filePath);
+                
+                if (!copy($filePath, $tempFile)) {
+                    throw new \Exception('Excel dosyası kopyalanamadı. Dosya izinlerini kontrol edin.');
+                }
+                
+                $filePath = $tempFile;
+            }
+            
+            try {
+                // Excel dosyasını oku
+                $data = Excel::toArray([], $filePath);
+                
+                // PhpSpreadsheet ile worksheet'i al (indent için - opsiyonel)
+                try {
+                    $spreadsheet = IOFactory::load($filePath);
+                    $worksheet = $spreadsheet->getActiveSheet();
+                } catch (\Exception $e) {
+                    // Worksheet alınamazsa null kalır, sadece string indent kullanılır
+                    Log::debug('PhpSpreadsheet worksheet load skipped', [
                         'error' => $e->getMessage(),
                     ]);
                 }
-                $worksheet = null;
+            } finally {
+                // Geçici dosyayı temizle
+                if ($tempFile && file_exists($tempFile)) {
+                    @unlink($tempFile);
+                }
             }
-            
-            // Array formatında da al (hızlı okuma için)
-            $data = Excel::toArray([], $filePath);
             
             if (empty($data) || empty($data[0])) {
                 throw new \Exception('Excel dosyası boş veya okunamadı');
