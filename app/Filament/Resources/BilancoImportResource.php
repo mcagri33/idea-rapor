@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\BilancoImportResource\Pages;
+use App\Filament\Resources\BilancoImportResource\RelationManagers;
 use App\Models\BilancoImport;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -129,7 +130,7 @@ class BilancoImportResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            RelationManagers\RowsRelationManager::class,
         ];
     }
 

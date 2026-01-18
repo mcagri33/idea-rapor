@@ -7,15 +7,9 @@ use Filament\Actions;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
-use Filament\Tables;
-use Filament\Tables\Table;
-use Filament\Tables\Concerns\InteractsWithTable;
-use Filament\Tables\Contracts\HasTable;
 
-class ViewBilancoImport extends ViewRecord implements HasTable
+class ViewBilancoImport extends ViewRecord
 {
-    use InteractsWithTable;
-
     protected static string $resource = BilancoImportResource::class;
 
     protected function getHeaderActions(): array
@@ -65,40 +59,5 @@ class ViewBilancoImport extends ViewRecord implements HasTable
                     ])
                     ->columns(2),
             ]);
-    }
-
-    public function table(Table $table): Table
-    {
-        return $table
-            ->query(\App\Models\BilancoRow::query()->where('bilanco_import_id', $this->record->id))
-            ->columns([
-                Tables\Columns\TextColumn::make('account_name')
-                    ->label('Hesap Adı')
-                    ->searchable()
-                    ->sortable()
-                    ->wrap(),
-                Tables\Columns\TextColumn::make('path')
-                    ->label('Path')
-                    ->searchable()
-                    ->wrap()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('level')
-                    ->label('Seviye')
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('cari_donem')
-                    ->label('Cari Dönem')
-                    ->money('TRY')
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('onceki_donem')
-                    ->label('Önceki Dönem')
-                    ->money('TRY')
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('acilis_bakiyeleri')
-                    ->label('Açılış Bakiyeleri')
-                    ->money('TRY')
-                    ->sortable(),
-            ])
-            ->defaultSort('level', 'asc')
-            ->paginated([25, 50, 100]);
     }
 }
