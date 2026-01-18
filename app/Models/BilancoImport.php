@@ -38,4 +38,12 @@ class BilancoImport extends Model
     {
         return $this->hasMany(BilancoRow::class);
     }
+
+    /**
+     * İlişkili CK set (nullable - bir bilanço import için bir CK set)
+     */
+    public function ckSet(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(CkSet::class);
+    }
 }

@@ -3,10 +3,12 @@
 namespace App\Filament\Resources\BilancoImportResource\Pages;
 
 use App\Filament\Resources\BilancoImportResource;
+use App\Services\CK\CkGenerateService;
 use Filament\Actions;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
+use Filament\Notifications\Notification;
 
 class ViewBilancoImport extends ViewRecord
 {
@@ -15,7 +17,39 @@ class ViewBilancoImport extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
-            //
+            Actions\Action::make('generateCk')
+                ->label('CK Oluştur')
+                ->icon('heroicon-o-document-text')
+                ->color('success')
+                ->requiresConfirmation()
+                ->modalHeading('Çalışma Kağıdı Oluştur')
+                ->modalDescription('Bu bilanço import\'undan çalışma kağıtları oluşturulacak. Devam etmek istiyor musunuz?')
+                ->modalSubmitActionLabel('Oluştur')
+                ->action(function () {
+                    try {
+                        $service = new CkGenerateService();
+                        $ckSet = $service->generateFromBilanco($this->record->id);
+                        
+                        Notification::make()
+                            ->title('Başarılı')
+                            ->success()
+                            ->body('Çalışma kağıtları başarıyla oluşturuldu. ' . $ckSet->heads()->count() . ' adet CK oluşturuldu.')
+                            ->actions([
+                                \Filament\Notifications\Actions\Action::make('view')
+                                    ->label('CK Set\'i Görüntüle')
+                                    ->url(route('filament.admin.resources.ck-sets.view', $ckSet))
+                                    ->button(),
+                            ])
+                            ->send();
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('Hata')
+                            ->danger()
+                            ->body('CK oluşturulurken bir hata oluştu: ' . $e->getMessage())
+                            ->send();
+                    }
+                })
+                ->visible(fn () => $this->record->status === 'completed' && !$this->record->ckSet()->exists()),
         ];
     }
 
