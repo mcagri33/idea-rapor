@@ -35,14 +35,16 @@ class ViewBilancoImport extends ViewRecord implements HasTable
                             ->label('Firma'),
                         Infolists\Components\TextEntry::make('donem')
                             ->label('Dönem'),
-                        Infolists\Components\BadgeEntry::make('status')
+                        Infolists\Components\TextEntry::make('status')
                             ->label('Durum')
-                            ->colors([
-                                'success' => 'completed',
-                                'warning' => 'processing',
-                                'danger' => 'failed',
-                                'secondary' => 'pending',
-                            ])
+                            ->badge()
+                            ->color(fn (string $state): string => match ($state) {
+                                'completed' => 'success',
+                                'processing' => 'warning',
+                                'failed' => 'danger',
+                                'pending' => 'secondary',
+                                default => 'gray',
+                            })
                             ->formatStateUsing(fn (string $state): string => match ($state) {
                                 'completed' => 'Tamamlandı',
                                 'processing' => 'İşleniyor',
