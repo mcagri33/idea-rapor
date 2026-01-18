@@ -58,20 +58,23 @@ class BilancoImportService
                 // PhpSpreadsheet artık izin verilen dizini kullanacak
                 $data = Excel::toArray([], $filePath);
                 
-                // PhpSpreadsheet ile worksheet'i al (indent için - opsiyonel)
-                try {
-                    $spreadsheet = IOFactory::load($filePath);
-                    $worksheet = $spreadsheet->getActiveSheet();
-                } catch (\Exception $e) {
-                    // Worksheet alınamazsa null kalır, sadece string indent kullanılır
-                    Log::debug('PhpSpreadsheet worksheet load skipped', [
-                        'error' => $e->getMessage(),
-                    ]);
+                // Başarılı oldu, worksheet'i al (indent için - opsiyonel)
+                if (!empty($data)) {
+                    try {
+                        $spreadsheet = IOFactory::load($filePath);
+                        $worksheet = $spreadsheet->getActiveSheet();
+                    } catch (\Exception $e) {
+                        // Worksheet alınamazsa null kalır, sadece string indent kullanılır
+                        Log::debug('PhpSpreadsheet worksheet load skipped', [
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
                 }
             } catch (\Exception $e) {
-                // open_basedir hatası devam ederse, alternatif yöntem dene
+                // Sadece open_basedir hatası varsa alternatif yöntem dene
                 if (str_contains($e->getMessage(), 'open_basedir') || 
-                    str_contains($e->getMessage(), '/xl/worksheets/')) {
+                    str_contains($e->getMessage(), '/xl/worksheets/') ||
+                    str_contains($e->getMessage(), 'file_exists()')) {
                     
                     Log::warning('Excel read failed due to open_basedir, trying alternative method', [
                         'error' => $e->getMessage(),
@@ -85,6 +88,7 @@ class BilancoImportService
                         throw new \Exception('Excel dosyası okunamadı. Alternatif yöntem de başarısız oldu.');
                     }
                 } else {
+                    // Diğer hatalar için direkt fırlat
                     throw $e;
                 }
             }
@@ -488,13 +492,12 @@ class BilancoImportService
                 $rowData = [];
                 $rowNum = (int)($row['r'] ?? 0);
                 
-                // Hücreleri oku - SimpleXML namespace'i otomatik handle eder
-                // Direkt children() kullan, namespace otomatik çözülür
+                // Hücreleri oku - direkt foreach ile (SimpleXML otomatik handle eder)
                 $cells = [];
                 
                 // Önce namespace ile dene
                 $rowChildren = $row->children($ns);
-                if (isset($rowChildren->c)) {
+                if ($rowChildren && isset($rowChildren->c)) {
                     foreach ($rowChildren->c as $cell) {
                         $cells[] = $cell;
                     }
@@ -503,28 +506,44 @@ class BilancoImportService
                 // Eğer boşsa, namespace olmadan dene
                 if (empty($cells)) {
                     $rowChildrenNoNs = $row->children();
-                    if (isset($rowChildrenNoNs->c)) {
+                    if ($rowChildrenNoNs && isset($rowChildrenNoNs->c)) {
                         foreach ($rowChildrenNoNs->c as $cell) {
                             $cells[] = $cell;
                         }
                     }
                 }
                 
+                // Eğer hala boşsa, direkt row->c ile dene
+                if (empty($cells) && isset($row->c)) {
+                    foreach ($row->c as $cell) {
+                        $cells[] = $cell;
+                    }
+                }
+                
+                Log::debug('Satır hücreleri', [
+                    'row_num' => $rowNum,
+                    'cell_count' => count($cells),
+                ]);
+                
                 foreach ($cells as $cell) {
                     $cellRef = (string)($cell['r'] ?? '');
                     $cellType = (string)($cell['t'] ?? '');
                     $cellValue = null;
                     
-                    // Hücre değerini al (v elementi)
-                    // Önce namespace ile dene
-                    $cellChildren = $cell->children($ns);
-                    if (isset($cellChildren->v)) {
-                        $cellValue = (string)$cellChildren->v;
+                    // Hücre değerini al (v elementi) - direkt erişim
+                    if (isset($cell->v)) {
+                        $cellValue = (string)$cell->v;
                     } else {
-                        // Namespace olmadan dene
-                        $cellChildrenNoNs = $cell->children();
-                        if (isset($cellChildrenNoNs->v)) {
-                            $cellValue = (string)$cellChildrenNoNs->v;
+                        // Namespace ile dene
+                        $cellChildren = $cell->children($ns);
+                        if ($cellChildren && isset($cellChildren->v)) {
+                            $cellValue = (string)$cellChildren->v;
+                        } else {
+                            // Namespace olmadan dene
+                            $cellChildrenNoNs = $cell->children();
+                            if ($cellChildrenNoNs && isset($cellChildrenNoNs->v)) {
+                                $cellValue = (string)$cellChildrenNoNs->v;
+                            }
                         }
                     }
                     
