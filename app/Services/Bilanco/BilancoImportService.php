@@ -481,14 +481,33 @@ class BilancoImportService
             
             Log::info('Satırlar bulundu', ['satir_sayisi' => count($rows)]);
             
+            // Namespace'i bir kez kaydet
+            $ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+            
             foreach ($rows as $row) {
                 $rowData = [];
                 $rowNum = (int)($row['r'] ?? 0);
                 
-                // Hücreleri oku
-                $cells = $row->xpath('.//x:c');
+                // Hücreleri oku - SimpleXML namespace'i otomatik handle eder
+                // Direkt children() kullan, namespace otomatik çözülür
+                $cells = [];
+                
+                // Önce namespace ile dene
+                $rowChildren = $row->children($ns);
+                if (isset($rowChildren->c)) {
+                    foreach ($rowChildren->c as $cell) {
+                        $cells[] = $cell;
+                    }
+                }
+                
+                // Eğer boşsa, namespace olmadan dene
                 if (empty($cells)) {
-                    $cells = $row->xpath('.//c');
+                    $rowChildrenNoNs = $row->children();
+                    if (isset($rowChildrenNoNs->c)) {
+                        foreach ($rowChildrenNoNs->c as $cell) {
+                            $cells[] = $cell;
+                        }
+                    }
                 }
                 
                 foreach ($cells as $cell) {
@@ -497,18 +516,21 @@ class BilancoImportService
                     $cellValue = null;
                     
                     // Hücre değerini al (v elementi)
-                    $vElements = $cell->xpath('.//x:v');
-                    if (empty($vElements)) {
-                        $vElements = $cell->xpath('.//v');
+                    // Önce namespace ile dene
+                    $cellChildren = $cell->children($ns);
+                    if (isset($cellChildren->v)) {
+                        $cellValue = (string)$cellChildren->v;
+                    } else {
+                        // Namespace olmadan dene
+                        $cellChildrenNoNs = $cell->children();
+                        if (isset($cellChildrenNoNs->v)) {
+                            $cellValue = (string)$cellChildrenNoNs->v;
+                        }
                     }
                     
-                    if (!empty($vElements)) {
-                        $cellValue = (string)$vElements[0];
-                        
-                        // Shared string ise
-                        if ($cellType === 's' && isset($sharedStrings[(int)$cellValue])) {
-                            $cellValue = $sharedStrings[(int)$cellValue];
-                        }
+                    // Shared string ise
+                    if ($cellValue !== null && $cellType === 's' && isset($sharedStrings[(int)$cellValue])) {
+                        $cellValue = $sharedStrings[(int)$cellValue];
                     }
                     
                     // Kolon index'ini hesapla (A=0, B=1, ...)
